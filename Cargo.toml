@@ -1,0 +1,17 @@
+[package]
+name = "avatar-project"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+actix-web = "4"
+uuid = { version = "1.5.0", features = ["serde", "v4"]}
+reqwest = { version = "0.11", features = ["json", "blocking"] }
+serde = { version = "1.0", features = ["derive"] }
+base64 = "0.21.5"
+serde_json = "1.0.64"
+image = {versionn = "0.24.7" , features = ["jpeg", "png"]}
+redis = { version = "0.23.3", features = ["tokio-comp"] }
+dotenv = "0.15.0"
