@@ -116,8 +116,10 @@ async fn main() -> std::io::Result<()> {
         std::env::var("REDIS_ADDRESS").unwrap()
     );
     let client = redis::Client::open(connection_string).unwrap();
-
     let con = client.get_multiplexed_async_connection().await.unwrap();
+
+    let port = std::env::var("PORT").expect("Missing port number");
+    let port = port.parse::<u16>().expect("Port is not a number");
 
     HttpServer::new(move || {
         App::new()
@@ -129,7 +131,7 @@ async fn main() -> std::io::Result<()> {
             .service(get_skin)
             .service(get_skin_64)
     })
-    .bind(("0.0.0.0", 8080))?
+    .bind(("0.0.0.0", port))?
     .run()
     .await
 }
