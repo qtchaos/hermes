@@ -8,7 +8,7 @@ To achieve blazing fast speeds and to not get rate-limited by Mojang, we apply t
 * Renew the cache every 20 minutes.
 
 ## Reliability
-To ensure reliability of the service, we plan to store avatars in long term storage, which is slower but more cost efficient than storing in memory. If Mojang' servers ever go down, your avatar can still be served if you've used the service before.
+To ensure reliability of the service, we plan to store avatars in long term storage, which is slower but more cost efficient than storing in memory. If Mojang' servers ever go down, your avatar can still be served if you've used the service before. Long term storage should be updated only if a request has been made and the last update of long term storage is greater than 24 hours.
 
 ## API
 We currently provide three endpoints:
