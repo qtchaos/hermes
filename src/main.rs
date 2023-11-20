@@ -1,3 +1,5 @@
+use std::{fs::read_to_string, io::Read};
+
 use crate::{
     types::State,
     utils::{crop, encode_jpg, encode_png, get, get_skin_bytes, resize, set},
@@ -5,15 +7,25 @@ use crate::{
 use actix_web::{get, web, App, HttpResponse, HttpServer, Responder};
 use base64::{engine::general_purpose, Engine};
 use dotenv::dotenv;
-use image::imageops;
+use image::{imageops, DynamicImage, EncodableLayout};
 use reqwest::StatusCode;
 use uuid::Uuid;
 mod types;
 mod utils;
 
 #[get("/")]
-async fn hello() -> impl Responder {
-    HttpResponse::Ok().body("Hello world!")
+async fn health() -> impl Responder {
+    HttpResponse::Ok()
+}
+
+#[get("/clear_cache/{password}")]
+async fn clear_cache(path: web::Path<String>, data: web::Data<State>) -> impl Responder {
+    if path.into_inner() == std::env::var("CLEAR_CACHE_PASSWORD").unwrap() {
+        let mut con = data.connection.clone();
+        let _: () = redis::cmd("FLUSHALL").query_async(&mut con).await.unwrap();
+        return HttpResponse::Ok().body("Cache cleared!");
+    }
+    HttpResponse::Ok().body("Wrong password!")
 }
 
 #[get("/avatar/{uuid}/{size}/{helm}")]
@@ -25,27 +37,24 @@ async fn get_avatar(path: web::Path<(Uuid, u32, bool)>, data: web::Data<State>) 
     let key: Result<String, _> = get(&identifier, &mut con).await;
     match key {
         Ok(key) => {
-            if size == 8 {
-                let jpeg_buffer = general_purpose::STANDARD.decode(key.as_bytes()).unwrap();
-                return HttpResponse::build(StatusCode::OK)
-                    .content_type("image/jpeg")
-                    .body(jpeg_buffer);
+            let mut buffer = key
+                .split(",")
+                .map(|x| x.parse::<u8>().unwrap())
+                .collect::<Vec<u8>>();
+
+            let avatar = image::load_from_memory(&buffer).unwrap().to_rgba8();
+
+            if size != 8 {
+                // resize the 8px avatar to the proper size
+                let avatar = resize(&avatar, size);
+                buffer = encode_png(avatar, size, image::ColorType::Rgb8);
             }
 
-            // resize the 8px avatar to the proper size
-            let jpeg_buffer = general_purpose::STANDARD.decode(key.as_bytes()).unwrap();
-            let avatar = image::load_from_memory(&jpeg_buffer).unwrap().to_rgba8();
-            let avatar = resize(avatar, size);
-            let jpeg_buffer = encode_jpg(image::DynamicImage::ImageRgba8(avatar), size);
-            println!("Cache hit!");
-
             return HttpResponse::build(StatusCode::OK)
-                .content_type("image/jpeg")
-                .body(jpeg_buffer);
+                .content_type("image/png")
+                .body(buffer);
         }
-        Err(_) => {
-            println!("Cache miss!");
-        }
+        Err(_) => {}
     }
 
     let skin = get_skin_bytes(path.0).await;
@@ -56,27 +65,32 @@ async fn get_avatar(path: web::Path<(Uuid, u32, bool)>, data: web::Data<State>) 
         imageops::overlay(&mut avatar, &helm, 0, 0);
     }
 
-    let mut jpeg_buffer: Vec<u8> = encode_jpg(image::DynamicImage::ImageRgba8(avatar.clone()), 8);
-
+    let mut png_buffer: Vec<u8> = encode_png(avatar.clone(), 8, image::ColorType::Rgb8);
     // If avatar is not 8px wide
     if avatar.width() != size {
         // Cache the 8px avatar
-        let b64_jpeg = general_purpose::STANDARD.encode(&jpeg_buffer);
-        set(identifier.clone(), b64_jpeg, &mut con).await;
+        let avatar_str = png_buffer.to_vec();
+        let avatar_str = avatar_str
+            .iter()
+            .map(|x| x.to_string())
+            .collect::<Vec<String>>()
+            .join(",");
+
+        set(identifier.clone(), avatar_str, &mut con).await;
 
         // Now resize it to the proper size
-        avatar = resize(avatar, size);
+        avatar = resize(&avatar, size);
     } else {
         return HttpResponse::build(StatusCode::OK)
-            .content_type("image/jpeg")
-            .body(jpeg_buffer);
+            .content_type("image/png")
+            .body(png_buffer);
     }
 
-    jpeg_buffer = encode_jpg(image::DynamicImage::ImageRgba8(avatar), size);
+    png_buffer = encode_png(avatar, size, image::ColorType::Rgb8);
 
     HttpResponse::build(StatusCode::OK)
-        .content_type("image/jpeg")
-        .body(jpeg_buffer)
+        .content_type("image/png")
+        .body(png_buffer)
 }
 
 #[get("/skin/{uuid}/{size}")]
@@ -89,7 +103,7 @@ async fn get_skin(path: web::Path<(Uuid, u32)>) -> impl Responder {
         skin = imageops::resize(&skin, size, size, imageops::FilterType::Nearest);
     }
 
-    let png_buffer = encode_png(image::DynamicImage::ImageRgba8(skin), size);
+    let png_buffer = encode_png(skin, size, image::ColorType::Rgba8);
     HttpResponse::build(StatusCode::OK)
         .content_type("image/png")
         .body(png_buffer)
@@ -100,7 +114,7 @@ async fn get_skin_64(path: web::Path<Uuid>) -> impl Responder {
     let skin = get_skin_bytes(path.into_inner()).await;
     let skin = image::load_from_memory(&skin).unwrap().to_rgba8();
 
-    let png_buffer = encode_png(image::DynamicImage::ImageRgba8(skin), 64);
+    let png_buffer = encode_png(skin, 64, image::ColorType::Rgba8);
     HttpResponse::build(StatusCode::OK)
         .content_type("image/png")
         .body(png_buffer)
@@ -126,7 +140,8 @@ async fn main() -> std::io::Result<()> {
             .app_data(web::Data::new(State {
                 connection: con.clone(),
             }))
-            .service(hello)
+            .service(health)
+            .service(clear_cache)
             .service(get_avatar)
             .service(get_skin)
             .service(get_skin_64)

@@ -2,7 +2,7 @@ use crate::types::{DecodedProperty, MojangProfile};
 use base64::{engine::general_purpose, Engine};
 use image::{
     codecs::{jpeg::JpegEncoder, png::PngEncoder},
-    imageops, ImageBuffer, ImageEncoder, Rgba,
+    imageops, EncodableLayout, ImageBuffer, ImageEncoder, Rgb, Rgba, Pixel,
 };
 use redis::AsyncCommands;
 use uuid::Uuid;
@@ -20,8 +20,11 @@ pub fn crop(
     image
 }
 
-pub fn resize(image: ImageBuffer<Rgba<u8>, Vec<u8>>, size: u32) -> ImageBuffer<Rgba<u8>, Vec<u8>> {
-    let returnable = imageops::resize(&image, size, size, imageops::FilterType::Nearest);
+pub fn resize<T: Pixel + 'static>(
+    image: &ImageBuffer<T, Vec<T::Subpixel>>,
+    size: u32,
+) -> ImageBuffer<T, Vec<T::Subpixel>> {
+    let returnable = imageops::resize(image, size, size, imageops::FilterType::Nearest);
     returnable
 }
 
@@ -49,17 +52,34 @@ pub fn encode_jpg(image: image::DynamicImage, size: u32) -> Vec<u8> {
     jpeg_buffer
 }
 
-pub fn encode_png(image: image::DynamicImage, size: u32) -> Vec<u8> {
-    let mut jpeg_buffer = Vec::new();
+pub fn encode_png(
+    image: image::ImageBuffer<Rgba<u8>, Vec<u8>>,
+    size: u32,
+    color_type: image::ColorType,
+) -> Vec<u8> {
+    let mut buffer = Vec::new();
+    let mut new_image: ImageBuffer<Rgb<u8>, Vec<u8>>;
     let encoder = PngEncoder::new_with_quality(
-        &mut jpeg_buffer,
+        &mut buffer,
         image::codecs::png::CompressionType::Best,
         image::codecs::png::FilterType::NoFilter,
     );
-    encoder
-        .write_image(&image.into_rgba8(), size, size, image::ColorType::Rgba8)
-        .unwrap();
-    jpeg_buffer
+
+    // Handle converting to RGB if the image is RGBA
+    if color_type == image::ColorType::Rgb8 {
+        if image.as_bytes().len() as i32 != 192 {
+            new_image = ImageBuffer::new(size, size);
+            for (x, y, pixel) in image.enumerate_pixels() {
+                new_image.put_pixel(x, y, Rgb([pixel[0], pixel[1], pixel[2]]));
+            }
+            encoder
+                .write_image(&new_image, size, size, color_type)
+                .unwrap();
+            return buffer;
+        }
+    }
+    encoder.write_image(&image, size, size, color_type).unwrap();
+    buffer
 }
 
 pub async fn get_skin_bytes(uuid: Uuid) -> Vec<u8> {
