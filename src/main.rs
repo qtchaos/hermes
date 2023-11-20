@@ -1,13 +1,10 @@
-use std::{fs::read_to_string, io::Read};
-
 use crate::{
     types::State,
-    utils::{crop, encode_jpg, encode_png, get, get_skin_bytes, resize, set},
+    utils::{crop, encode_png, get, get_skin_bytes, resize, set},
 };
-use actix_web::{get, web, App, HttpResponse, HttpServer, Responder};
-use base64::{engine::general_purpose, Engine};
+use actix_web::{get, http::header, web, App, HttpResponse, HttpServer, Responder};
 use dotenv::dotenv;
-use image::{imageops, DynamicImage, EncodableLayout};
+use image::imageops;
 use reqwest::StatusCode;
 use uuid::Uuid;
 mod types;
@@ -82,14 +79,16 @@ async fn get_avatar(path: web::Path<(Uuid, u32, bool)>, data: web::Data<State>) 
         avatar = resize(&avatar, size);
     } else {
         return HttpResponse::build(StatusCode::OK)
-            .content_type("image/png")
+            .content_type(header::ContentType("image/png".parse().unwrap()))
+            .insert_header(("Cache-Control", "max-age=1200"))
             .body(png_buffer);
     }
 
     png_buffer = encode_png(avatar, size, image::ColorType::Rgb8);
 
     HttpResponse::build(StatusCode::OK)
-        .content_type("image/png")
+        .content_type(header::ContentType("image/png".parse().unwrap()))
+        .insert_header(("Cache-Control", "max-age=1200"))
         .body(png_buffer)
 }
 
@@ -105,7 +104,8 @@ async fn get_skin(path: web::Path<(Uuid, u32)>) -> impl Responder {
 
     let png_buffer = encode_png(skin, size, image::ColorType::Rgba8);
     HttpResponse::build(StatusCode::OK)
-        .content_type("image/png")
+        .content_type(header::ContentType("image/png".parse().unwrap()))
+        .insert_header(("Cache-Control", "max-age=1200"))
         .body(png_buffer)
 }
 
@@ -116,7 +116,8 @@ async fn get_skin_64(path: web::Path<Uuid>) -> impl Responder {
 
     let png_buffer = encode_png(skin, 64, image::ColorType::Rgba8);
     HttpResponse::build(StatusCode::OK)
-        .content_type("image/png")
+        .content_type(header::ContentType("image/png".parse().unwrap()))
+        .insert_header(("Cache-Control", "max-age=1200"))
         .body(png_buffer)
 }
 
