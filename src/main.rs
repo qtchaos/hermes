@@ -55,14 +55,19 @@ async fn get_avatar(path: web::Path<(Uuid, u32, bool)>, data: web::Data<State>) 
     let key: Result<Vec<u8>, _> = get(&identifier, &mut con).await;
     match key {
         Ok(mut buffer) => {
-            const DATA: [u8; 36] = [
+            const PREPEND_DATA: [u8; 36] = [
                 // Offset 0x00000000 to 0x00000023
                 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48,
                 0x44, 0x52, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00, 0x08, 0x08, 0x02, 0x00, 0x00,
                 0x00, 0x4B, 0x6D, 0x29, 0xDC, 0x00, 0x00, 0x00,
             ];
+            const DATA: [u8; 12] = [
+                // Offset 0x00000073 to 0x0000007F
+                0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
+            ];
 
-            buffer.splice(0..0, DATA.iter().cloned());
+            buffer.splice(0..0, PREPEND_DATA.iter().cloned());
+            buffer.splice(buffer.len()..buffer.len(), DATA.iter().cloned());
             let avatar = image::load_from_memory(&buffer).unwrap().to_rgba8();
 
             // If the avatar is greater than 8px, resize the cached avatar
@@ -96,7 +101,9 @@ async fn get_avatar(path: web::Path<(Uuid, u32, bool)>, data: web::Data<State>) 
      STEP: Creating cache.
     */
     let avatar_bytes = buffer.to_vec();
-    let avatar_bytes = &avatar_bytes[36..];
+    // Remove the PNG header and footer (36 bytes and 12 bytes respectively)
+    let avatar_bytes = avatar_bytes[36..avatar_bytes.len() - 12].to_vec();
+
     set(identifier.clone(), avatar_bytes, &mut con).await;
 
     if avatar.width() != size {
