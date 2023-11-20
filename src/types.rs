@@ -1,6 +1,16 @@
 use redis::aio::MultiplexedConnection;
 use serde::{Deserialize, Serialize};
 
+pub trait IsEmpty {
+    fn is_empty(&self) -> bool;
+}
+
+impl IsEmpty for Vec<u8> {
+    fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+}
+
 pub struct State {
     pub connection: MultiplexedConnection,
 }

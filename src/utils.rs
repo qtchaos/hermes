@@ -1,8 +1,7 @@
-use crate::types::{DecodedProperty, MojangProfile};
+use crate::types::{DecodedProperty, IsEmpty, MojangProfile};
 use base64::{engine::general_purpose, Engine};
 use image::{
-    codecs::{jpeg::JpegEncoder, png::PngEncoder},
-    imageops, EncodableLayout, ImageBuffer, ImageEncoder, Rgb, Rgba, Pixel,
+    codecs::png::PngEncoder, imageops, EncodableLayout, ImageBuffer, ImageEncoder, Pixel, Rgb, Rgba,
 };
 use redis::AsyncCommands;
 use uuid::Uuid;
@@ -28,28 +27,40 @@ pub fn resize<T: Pixel + 'static>(
     returnable
 }
 
-pub async fn set(k: String, v: String, con: &mut redis::aio::MultiplexedConnection) {
+pub async fn set<T: redis::ToRedisArgs + Send + Sync>(
+    k: String,
+    v: T,
+    con: &mut redis::aio::MultiplexedConnection,
+) {
     let _: () = con.set(k, v).await.unwrap();
 }
 
-pub async fn get(
+pub async fn get<T: redis::FromRedisValue + IsEmpty>(
     k: &String,
     con: &mut redis::aio::MultiplexedConnection,
-) -> redis::RedisResult<String> {
-    let v: redis::RedisResult<String> = con.get(k).await;
+) -> redis::RedisResult<T> {
+    let v: redis::RedisResult<T> = con.get(k).await;
+    match &v {
+        Ok(value) => {
+            if value.is_empty() {
+                return Err(redis::RedisError::from((
+                    redis::ErrorKind::TypeError,
+                    "Value is empty",
+                )));
+            }
+        }
+        Err(_) => {}
+    }
     v
 }
 
-pub fn encode_jpg(image: image::DynamicImage, size: u32) -> Vec<u8> {
-    let mut jpeg_buffer = Vec::new();
-    let mut encoder = JpegEncoder::new_with_quality(&mut jpeg_buffer, 100);
-    if image.width() != size {
-        println!("width != size {} != {}", image.width(), size);
-    }
-    encoder
-        .encode(&image.into_rgba8(), size, size, image::ColorType::Rgba8)
-        .unwrap();
-    jpeg_buffer
+pub fn get_id(uuid: Uuid, helm: bool) -> String {
+    let identifier = format!(
+        "{}-{}",
+        uuid.to_string().split_off(30),
+        helm.to_string()[0..1].to_string()
+    );
+    identifier
 }
 
 pub fn encode_png(
@@ -82,13 +93,19 @@ pub fn encode_png(
     buffer
 }
 
-pub async fn get_skin_bytes(uuid: Uuid) -> Vec<u8> {
+pub async fn get_skin_bytes(uuid: Uuid) -> Result<Vec<u8>, &'static str> {
     let mojang_url = "https://sessionserver.mojang.com/session/minecraft/profile/";
     let resp = reqwest::get(mojang_url.to_string() + &uuid.to_string())
         .await
         .unwrap();
-    let profile: MojangProfile = resp.json().await.unwrap();
-
+    let resp_result: Result<MojangProfile, reqwest::Error> = resp.json().await;
+    let profile = match resp_result {
+        Ok(profile) => profile,
+        Err(_) => {
+            // TODO add long term storage for skins
+            return Err("Error getting profile from Mojang");
+        }
+    };
     let decoded_obj = general_purpose::STANDARD
         .decode(profile.properties[0].value.as_bytes())
         .unwrap();
@@ -99,5 +116,5 @@ pub async fn get_skin_bytes(uuid: Uuid) -> Vec<u8> {
         .bytes()
         .await
         .unwrap();
-    skin.to_vec()
+    Ok(skin.to_vec())
 }

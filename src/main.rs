@@ -1,8 +1,12 @@
 use crate::{
     types::State,
-    utils::{crop, encode_png, get, get_skin_bytes, resize, set},
+    utils::{crop, encode_png, get, get_id, get_skin_bytes, resize, set},
 };
-use actix_web::{get, http::header, web, App, HttpResponse, HttpServer, Responder};
+use actix_web::{
+    get,
+    http::header::{self},
+    web, App, HttpResponse, HttpServer, Responder,
+};
 use dotenv::dotenv;
 use image::imageops;
 use reqwest::StatusCode;
@@ -27,75 +31,86 @@ async fn clear_cache(path: web::Path<String>, data: web::Data<State>) -> impl Re
 
 #[get("/avatar/{uuid}/{size}/{helm}")]
 async fn get_avatar(path: web::Path<(Uuid, u32, bool)>, data: web::Data<State>) -> impl Responder {
-    let identifier = path.0.to_string().split_off(30) + &path.2.to_string();
-    let mut con = data.connection.clone();
+    let uuid = path.0;
     let size = path.1;
+    let helm = path.2;
+    let identifier = get_id(uuid, helm);
+    let mut con = data.connection.clone();
+    let mut response = HttpResponse::build(StatusCode::OK);
+    response.append_header((header::CONTENT_TYPE, "image/png"));
+    response.append_header((header::CACHE_CONTROL, "max-age=1200"));
+    response.append_header((header::SERVER, "Ziria"));
 
-    let key: Result<String, _> = get(&identifier, &mut con).await;
+    /*
+      STEP: Size validation.
+    */
+    if size > 512 || size < 8 || size % 8 != 0 {
+        return HttpResponse::build(StatusCode::BAD_REQUEST)
+            .body("Size must be between 8 and 512, and divisible by 8.");
+    }
+
+    /*
+      STEP: Cache loading.
+    */
+    let key: Result<Vec<u8>, _> = get(&identifier, &mut con).await;
     match key {
-        Ok(key) => {
-            let mut buffer = key
-                .split(",")
-                .map(|x| x.parse::<u8>().unwrap())
-                .collect::<Vec<u8>>();
-
+        Ok(mut buffer) => {
             let avatar = image::load_from_memory(&buffer).unwrap().to_rgba8();
 
-            if size != 8 {
-                // resize the 8px avatar to the proper size
+            // If the avatar is greater than 8px, resize the cached avatar
+            if size > 8 {
                 let avatar = resize(&avatar, size);
                 buffer = encode_png(avatar, size, image::ColorType::Rgb8);
             }
 
-            return HttpResponse::build(StatusCode::OK)
-                .content_type("image/png")
-                .body(buffer);
+            return response.body(buffer);
         }
         Err(_) => {}
     }
 
-    let skin = get_skin_bytes(path.0).await;
+    let skin = match get_skin_bytes(path.0).await {
+        Ok(skin) => skin,
+        Err(_) => {
+            return HttpResponse::build(StatusCode::NOT_FOUND).body("Skin not found!");
+        }
+    };
+
     let mut avatar = crop(skin.clone(), 8, 8, 8, 8);
 
-    if path.2 == true {
+    if helm == true {
         let helm = crop(skin, 40, 8, 8, 8);
         imageops::overlay(&mut avatar, &helm, 0, 0);
     }
 
-    let mut png_buffer: Vec<u8> = encode_png(avatar.clone(), 8, image::ColorType::Rgb8);
-    // If avatar is not 8px wide
+    let buffer: Vec<u8> = encode_png(avatar.clone(), 8, image::ColorType::Rgb8);
+
+    /*
+     STEP: Creating cache.
+    */
     if avatar.width() != size {
         // Cache the 8px avatar
-        let avatar_str = png_buffer.to_vec();
-        let avatar_str = avatar_str
-            .iter()
-            .map(|x| x.to_string())
-            .collect::<Vec<String>>()
-            .join(",");
+        let avatar_bytes = buffer.to_vec();
+        set(identifier.clone(), avatar_bytes, &mut con).await;
 
-        set(identifier.clone(), avatar_str, &mut con).await;
-
-        // Now resize it to the proper size
+        // Now resize it to the proper size to return it
         avatar = resize(&avatar, size);
     } else {
-        return HttpResponse::build(StatusCode::OK)
-            .content_type(header::ContentType("image/png".parse().unwrap()))
-            .insert_header(("Cache-Control", "max-age=1200"))
-            .body(png_buffer);
+        return response.body(buffer);
     }
 
-    png_buffer = encode_png(avatar, size, image::ColorType::Rgb8);
-
-    HttpResponse::build(StatusCode::OK)
-        .content_type(header::ContentType("image/png".parse().unwrap()))
-        .insert_header(("Cache-Control", "max-age=1200"))
-        .body(png_buffer)
+    response.body(encode_png(avatar, size, image::ColorType::Rgb8))
 }
 
 #[get("/skin/{uuid}/{size}")]
 async fn get_skin(path: web::Path<(Uuid, u32)>) -> impl Responder {
     let size = path.1;
-    let skin = get_skin_bytes(path.0).await;
+    let skin = match get_skin_bytes(path.0).await {
+        Ok(skin) => skin,
+        Err(_) => {
+            return HttpResponse::build(StatusCode::NOT_FOUND).body("Skin not found!");
+        }
+    };
+
     let mut skin = image::load_from_memory(&skin).unwrap().to_rgba8();
 
     if size != 64 {
@@ -111,14 +126,20 @@ async fn get_skin(path: web::Path<(Uuid, u32)>) -> impl Responder {
 
 #[get("/skin/{uuid}")]
 async fn get_skin_64(path: web::Path<Uuid>) -> impl Responder {
-    let skin = get_skin_bytes(path.into_inner()).await;
+    let skin = match get_skin_bytes(path.into_inner()).await {
+        Ok(skin) => skin,
+        Err(_) => {
+            return HttpResponse::build(StatusCode::NOT_FOUND).body("Skin not found!");
+        }
+    };
+
     let skin = image::load_from_memory(&skin).unwrap().to_rgba8();
 
-    let png_buffer = encode_png(skin, 64, image::ColorType::Rgba8);
+    let buffer = encode_png(skin, 64, image::ColorType::Rgba8);
     HttpResponse::build(StatusCode::OK)
         .content_type(header::ContentType("image/png".parse().unwrap()))
         .insert_header(("Cache-Control", "max-age=1200"))
-        .body(png_buffer)
+        .body(buffer)
 }
 
 #[actix_web::main]
