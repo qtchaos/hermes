@@ -32,7 +32,8 @@ pub async fn set<T: redis::ToRedisArgs + Send + Sync>(
     v: T,
     con: &mut redis::aio::MultiplexedConnection,
 ) {
-    let _: () = con.set(k, v).await.unwrap();
+    let _: () = con.set(&k, v).await.unwrap();
+    let _: () = con.expire(k, 1200).await.unwrap();
 }
 
 pub async fn get<T: redis::FromRedisValue + IsEmpty>(
