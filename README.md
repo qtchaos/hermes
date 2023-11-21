@@ -3,9 +3,11 @@ Blazing fast and memory-safe avatar service.
 
 ## Caching
 To achieve blazing fast speeds and to not get rate-limited by Mojang, we apply the following caching technique for avatars:
-* Store an optimized 8px * 8px image in Redis.
-* Resize the optimized image on request.
-* Renew the cache every 20 minutes.
+* Optimize the 8px * 8px avatar by removing PNG magic (48 bytes saved).
+* Store the optimized avatar in Redis with a 20 minute expiry.
+* Resize the optimized avatar on request and add back PNG magic.
+
+These techniques allow us to store approximately 5,000,000 avatars for every GB of Redis cache.
 
 ## Reliability
 To ensure reliability of the service, we plan to store avatars in long term storage, which is slower but more cost efficient than storing in memory. If Mojang' servers ever go down, your avatar can still be served if you've used the service before. Long term storage should be updated only if a request has been made and the last update of long term storage is greater than 24 hours.
