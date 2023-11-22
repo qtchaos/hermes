@@ -14,9 +14,9 @@ To ensure reliability of the service, we plan to store avatars in long term stor
 
 ## API
 We currently provide three endpoints:
-* `/avatar/{uuid}/{size}/{helm}`
-* `/skin/{uuid}/{size}`
-* `/skin/{uuid}`
+* `/avatar/{uuid/username}/{size}/{helm}`
+* `/skin/{uuid/username}/{size}`
+* `/skin/{uuid/username}`
 
 ### Avatar
 To use the avatar service, you can use the `/avatar/{uuid}/{size}/{helm}` endpoint, `helm` being the overlay/helmet layer of the skin.
