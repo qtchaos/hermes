@@ -1,16 +1,15 @@
 use crate::types::{State, UuidOrString};
+use actix::Arbiter;
 use actix_web::{
     get,
     http::header::{self},
-    web::{self, ServiceConfig},
-    HttpRequest, HttpResponse, Responder,
+    web, App, HttpRequest, HttpResponse, HttpServer, Responder,
 };
+use dotenvy::dotenv;
 use image::{imageops, DynamicImage::ImageRgb8, DynamicImage::ImageRgba8};
 use reqwest::StatusCode;
-use shuttle_actix_web::ShuttleActixWeb;
-use shuttle_secrets::SecretStore;
+use std::env;
 use uuid::Uuid;
-
 mod bytes;
 mod cache;
 mod img;
@@ -99,16 +98,15 @@ async fn get_avatar(req: HttpRequest, data: web::Data<State>) -> impl Responder 
 
     let buffer: Vec<u8> = img::encode_png(ImageRgb8(avatar.clone()));
 
-    // STEP: Creating the cache entry
-    let mut avatar_buffer = buffer.to_vec();
-    avatar_buffer = bytes::strip(avatar_buffer);
-    cache::set(identifier.clone(), avatar_buffer, &mut con).await;
-
     if avatar.width() != size {
         avatar = img::resize(&avatar, size);
-    } else {
-        return response.body(buffer);
-    }
+    };
+
+    // STEP: Spawn a new thread to cache the avatar
+    Arbiter::spawn(
+        &Arbiter::new(),
+        cache::set_avatar_cache(buffer, identifier, data.connection.clone()),
+    );
 
     response.body(img::encode_png(ImageRgb8(avatar)))
 }
@@ -187,10 +185,10 @@ async fn get_skin_64(req: HttpRequest) -> impl Responder {
         .body(buffer)
 }
 
-#[shuttle_runtime::main]
-async fn main(
-    #[shuttle_secrets::Secrets] secret: SecretStore,
-) -> ShuttleActixWeb<impl FnOnce(&mut ServiceConfig) + Send + Clone + 'static> {
+#[actix_web::main]
+async fn main() -> std::io::Result<()> {
+    dotenv().expect(".env file not found");
+    let secret = env::vars().collect::<std::collections::HashMap<String, String>>();
     let connection_string = format!(
         "{}://{}:{}@{}:{}/",
         secret.get("REDIS_SCHEME").unwrap(),
@@ -201,17 +199,20 @@ async fn main(
     );
     let client = redis::Client::open(connection_string).unwrap();
     let con = client.get_multiplexed_async_connection().await.unwrap();
-    let config = move |cfg: &mut ServiceConfig| {
-        cfg.service(health)
+
+    HttpServer::new(move || {
+        App::new()
+            .app_data(web::Data::new(State {
+                connection: con.clone(),
+                clear_cache_password: secret.get("CLEAR_CACHE_PASSWORD").unwrap().to_string(),
+            }))
+            .service(health)
             .service(clear_cache)
             .service(get_avatar)
             .service(get_skin)
             .service(get_skin_64)
-            .app_data(web::Data::new(State {
-                connection: con.clone(),
-                clear_cache_password: secret.get("CLEAR_CACHE_PASSWORD").unwrap(),
-            }));
-    };
-
-    Ok(config.into())
+    })
+    .bind(("127.0.0.1", 8080))?
+    .run()
+    .await
 }

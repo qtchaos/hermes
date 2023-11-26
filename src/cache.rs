@@ -1,4 +1,4 @@
-use crate::types::UuidOrString;
+use crate::{bytes, types::UuidOrString};
 use redis::AsyncCommands;
 
 use crate::types::IsEmpty;
@@ -50,4 +50,14 @@ pub fn create_id(uuid: UuidOrString, helm: bool) -> String {
             return identifier;
         }
     }
+}
+
+pub async fn set_avatar_cache(
+    buffer: Vec<u8>,
+    identifier: String,
+    mut con: redis::aio::MultiplexedConnection,
+) {
+    let mut avatar_buffer = buffer.to_vec();
+    avatar_buffer = bytes::strip(avatar_buffer);
+    set(identifier.clone(), avatar_buffer, &mut con).await;
 }
