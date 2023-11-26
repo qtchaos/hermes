@@ -1,4 +1,3 @@
-use redis::aio::MultiplexedConnection;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -35,11 +34,6 @@ impl IsEmpty for Vec<u8> {
     fn is_empty(&self) -> bool {
         self.len() == 0
     }
-}
-
-pub struct State {
-    pub connection: MultiplexedConnection,
-    pub clear_cache_password: String,
 }
 
 #[derive(Deserialize, Serialize, Debug)]

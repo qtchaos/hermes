@@ -1,4 +1,8 @@
 /target
+build
+.wrangler
 .env
 rustc-ice*
 Secrets*.toml
+*.vars
+node_modules

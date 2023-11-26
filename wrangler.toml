@@ -1,0 +1,15 @@
+name = "ziria"
+compatibility_date = "2022-11-26"
+main = "build/worker/shim.mjs"
+workers_dev = true
+
+[[kv_namespaces]]
+binding = "AVATARS"
+id = "ff060682be644333a078a6b1babe148b"
+preview_id = "ff060682be644333a078a6b1babe148b"
+
+[build]
+command = "cargo install -q worker-build && worker-build --release"
+
+[placement]
+mode = "smart"

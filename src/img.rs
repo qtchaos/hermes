@@ -1,6 +1,6 @@
 use std::vec;
 
-use image::{codecs::png::PngEncoder, imageops, ImageBuffer, ImageEncoder, Pixel, Rgb};
+use image::{codecs::png::PngEncoder, imageops, ImageBuffer, ImageEncoder, Pixel, Rgb, Rgba};
 
 pub fn crop(
     image: Vec<u8>,
@@ -8,11 +8,15 @@ pub fn crop(
     offset_y: u32,
     height: u32,
     width: u32,
-) -> ImageBuffer<Rgb<u8>, Vec<u8>> {
-    let mut image = image::load_from_memory(&image).unwrap().to_rgb8();
+) -> ImageBuffer<Rgba<u8>, Vec<u8>> {
+    let mut image = image::load_from_memory(&image).unwrap().to_rgba8();
     let image = imageops::crop(&mut image, offset_x, offset_y, width, height);
     let image = image.to_image();
     image
+}
+
+pub fn convert_to_rgb(image: ImageBuffer<Rgba<u8>, Vec<u8>>) -> ImageBuffer<Rgb<u8>, Vec<u8>> {
+    image::RgbImage::from_raw(image.width(), image.height(), image.into_raw()).unwrap()
 }
 
 pub fn resize<T: Pixel + 'static>(
