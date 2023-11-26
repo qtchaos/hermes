@@ -1,12 +1,11 @@
-use crate::{bytes, types::UuidOrString};
-use redis::AsyncCommands;
-
 use crate::types::IsEmpty;
+use crate::{bytes, types::UuidOrString};
+use redis::aio::MultiplexedConnection;
 
 pub async fn set<T: redis::ToRedisArgs + Send + Sync>(
     k: String,
     v: T,
-    con: &mut redis::aio::MultiplexedConnection,
+    con: &mut MultiplexedConnection,
 ) {
     let _: () = con.set(&k, v).await.unwrap();
     let _: () = con.expire(k, 1200).await.unwrap();
@@ -14,7 +13,7 @@ pub async fn set<T: redis::ToRedisArgs + Send + Sync>(
 
 pub async fn get<T: redis::FromRedisValue + IsEmpty>(
     k: &String,
-    con: &mut redis::aio::MultiplexedConnection,
+    con: &mut MultiplexedConnection,
 ) -> redis::RedisResult<T> {
     let v: redis::RedisResult<T> = con.get(k).await;
     match &v {
