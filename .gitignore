@@ -2,3 +2,6 @@
 .env
 rustc-ice*
 Secrets*.toml
+.wrangler
+node_modules
+*.vars
