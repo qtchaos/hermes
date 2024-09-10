@@ -11,7 +11,7 @@ pub async fn get_skin(uuid: Uuid) -> Result<Vec<u8>, &'static str> {
     let profile = match resp_result {
         Ok(profile) => profile,
         Err(_) => {
-            // TODO add long term storage for skins
+            // TODO add long term storage for skins/uuid, i.e cold storage to bypaass Mojang API
             return Err("Error getting profile from Mojang");
         }
     };

@@ -3,11 +3,11 @@ use actix::Arbiter;
 use actix_web::{
     get,
     http::header::{self},
+    http::StatusCode,
     web, App, HttpRequest, HttpResponse, HttpServer, Responder,
 };
 use dotenvy::dotenv;
-use image::{imageops, DynamicImage::ImageRgb8, DynamicImage::ImageRgba8};
-use reqwest::StatusCode;
+use image::{imageops, DynamicImage::ImageRgba8};
 use std::env;
 use uuid::Uuid;
 mod bytes;
@@ -54,19 +54,21 @@ async fn get_avatar(req: HttpRequest, data: web::Data<State>) -> impl Responder 
     match key {
         Ok(mut buffer) => {
             buffer = bytes::repair(buffer);
+
+            if size == 8 {
+                return response.body(buffer);
+            }
+
             let avatar = match image::load_from_memory(&buffer) {
-                Ok(avatar) => avatar.to_rgb8(),
+                Ok(avatar) => avatar,
                 Err(_) => {
                     return HttpResponse::build(StatusCode::INTERNAL_SERVER_ERROR)
                         .body("Error loading avatar from cache!");
                 }
             };
 
-            if size != 8 {
-                let avatar = img::resize(&avatar, size);
-                buffer = img::encode_png(ImageRgb8(avatar));
-            }
-
+            let resized_avatar = img::resize(&avatar.to_rgb8(), size);
+            buffer = img::encode_png(image::DynamicImage::ImageRgb8(resized_avatar));
             return response.body(buffer);
         }
         Err(_) => {}
@@ -88,27 +90,26 @@ async fn get_avatar(req: HttpRequest, data: web::Data<State>) -> impl Responder 
             return HttpResponse::build(StatusCode::NOT_FOUND).body("Skin not found!");
         }
     };
-
     let mut avatar = img::crop(skin.clone(), 8, 8, 8, 8);
 
-    if helm == true {
-        let helm = img::crop(skin.to_vec(), 40, 8, 8, 8);
+    if helm {
+        let helm = img::crop(skin, 40, 8, 8, 8);
+        // TODO check if helm is not empty
         imageops::overlay(&mut avatar, &helm, 0, 0);
     }
 
-    let buffer: Vec<u8> = img::encode_png(ImageRgb8(avatar.clone()));
-
+    let buffer: Vec<u8> = img::encode_png(ImageRgba8(avatar.clone()));
     if avatar.width() != size {
         avatar = img::resize(&avatar, size);
-    };
+    }
 
-    // STEP: Spawn a new thread to cache the avatar
+    // Spawn a new thread to cache the avatar
     Arbiter::spawn(
         &Arbiter::new(),
         cache::set_avatar_cache(buffer, identifier, data.connection.clone()),
     );
 
-    response.body(img::encode_png(ImageRgb8(avatar)))
+    response.body(img::encode_png(ImageRgba8(avatar)))
 }
 
 #[get("/skin/{uuid}/{size}")]
